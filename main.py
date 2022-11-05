@@ -1,40 +1,52 @@
+### Inspired by https://github.com/gerardrbentley/streamlit-random/blob/main/pdf_merge_and_split.py
+from datetime import datetime
+from pathlib import Path
 import streamlit as st
-import pandas as pd
-from google.oauth2 import service_account
-import pygsheets
+import streamlit_pydantic as sp
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from streamlit_pydantic.types import FileContent
+from PyPDF2 import PdfFileWriter, PdfFileReader
 
-# Create a connection object.
-credentials = service_account.Credentials.from_service_account_info(
-    st.secrets["gcp_service_account"],
-    scopes=[
-        "https://www.googleapis.com/auth/spreadsheets",
-    ],
-)
-client = pygsheets.authorize(custom_credentials=credentials)
-sheet = client.open_by_key('1hU-HwHPI61lHjAtECxsWJUjWQ1e_sSOeION72757pKs')
-wk = sheet.worksheet_by_title('Sheet1')
+# Make folder for storing user uploads
+destination_folder = Path('downloads')
+destination_folder.mkdir(exist_ok=True, parents=True)
 
-st.title("Give your score prediction for Serbia vs. Brazil")
-user_input_name = st.text_area("What's your name") #, "Jorge Almeida")
-user_input1 = st.text_input("Serbia") #,0)
-user_input2 = st.text_input("Brazil") #,0)
-def input_from_user(wk, user_input_name, user_input1, user_input2):
-    dat = pd.DataFrame(sheet.worksheet_by_title('Sheet1').range('A2:C1000', returnas='matrix'), 
-        columns=['Name of the person', 'Team 1 score','Team 2 score'])
-    lastrow = int(dat[(dat['Name of the person']!='') &\
-                 (dat['Team 1 score']!='') & (dat['Team 2 score']!='')].shape[0]+1)
-    newrow = lastrow+1
-    return newrow
+# Defines what options are in the form
+class PDFMergeRequest(BaseModel):
+    pdf_uploads: Optional[List[FileContent]] = Field(
+        None,
+        alias="PDF Files to merge",
+        description="PDF files that need to be merged",
+    )
 
-st.title("Predictions so far")
+st.title("PDF Merger")
+st.markdown("### Upload at least 2 PDF files to merge")
+# Get the data from the form, stop running if user hasn't submitted pdfs yet
+data = sp.pydantic_form(key="pdf_merge_form", model=PDFMergeRequest)
+if data is None or data.pdf_uploads is None or len(data.pdf_uploads) < 2:
+    st.warning("Upload at least 2 PDFs and press Submit")
+    st.stop()
 
-def main(wk, user_input_name, user_input1, user_input2):
-    newrow = input_from_user(wk, user_input_name, user_input1, user_input2)
-    wk.update_values(f'A{newrow}:C{newrow}', 
-        values=[[user_input_name, user_input1, user_input2]],majordim='ROWS')
-    dat = pd.DataFrame(sheet.worksheet_by_title('Sheet1').range(f'A2:C{newrow}', returnas='matrix'), 
-        columns=['Name of the person', 'Team 1 score','Team 2 score'])
-    st.write(dat)
+# Save Uploaded PDFs
+uploaded_paths = []
+for pdf_data in data.pdf_uploads:
+    input_pdf_path = destination_folder / f"input_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S_%f')}.pdf"
+    input_pdf_path.write_bytes(pdf_data.as_bytes())
+    uploaded_paths.append(input_pdf_path)
 
-if __name__ == "__main__":
-    main(wk, user_input_name, user_input1, user_input2)
+pdf_writer = PdfFileWriter()
+for path in uploaded_paths:
+    pdf_reader = PdfFileReader(str(path))
+    for page in range(pdf_reader.getNumPages()):
+        # Add each page to the writer object
+        pdf_writer.addPage(pdf_reader.getPage(page))
+
+# Write out the merged PDF
+output_pdf_path = destination_folder / f"output_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S_%f')}.pdf"
+with open(str(output_pdf_path), 'wb') as out:
+    pdf_writer.write(out)
+output_path = output_pdf_path
+output_mime = 'application/pdf'
+output_suffix = '.pdf'
+st.download_button('Download Merged Document', output_path.read_bytes(), f"output_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S_%f')}{output_suffix}", mime=output_mime)
