@@ -8,6 +8,11 @@ from typing import Optional, List
 from streamlit_pydantic.types import FileContent
 from PyPDF2 import PdfFileWriter, PdfFileReader
 
+from PIL import Image
+image = Image.open('LOGIPART LOGO.png')
+
+st.image(image, use_column_width=False, caption='Dokumappe Project')
+
 # Make folder for storing user uploads
 destination_folder = Path('downloads')
 destination_folder.mkdir(exist_ok=True, parents=True)
@@ -21,7 +26,7 @@ class PDFMergeRequest(BaseModel):
     )
 
 st.title("PDF Merger")
-st.markdown("### Upload at least 2 PDF files to merge")
+st.markdown("Upload at least 2 PDF files to merge")
 # Get the data from the form, stop running if user hasn't submitted pdfs yet
 data = sp.pydantic_form(key="pdf_merge_form", model=PDFMergeRequest)
 if data is None or data.pdf_uploads is None or len(data.pdf_uploads) < 2:
